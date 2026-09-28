@@ -10,6 +10,7 @@ and ARENA_KEY is "test". Scores from the mock mean nothing; this checks behaviou
   faults         /ledger without a phase key, claimed as "false"/"true" strings, ~3% malformed JSON
 """
 import argparse, json, os, re, shutil, socket, subprocess, sys, threading, time
+import urllib.request
 from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -35,8 +36,8 @@ def guard():
     return urlsplit(url).port or 18700
 
 
-def start_mock(port, faults, run_dir):
-    args = [sys.executable, MOCK, "--port", str(port)] + PHASE_ARGS + (["--faults"] if faults else [])
+def start_mock(port, faults, run_dir, extra=()):
+    args = [sys.executable, MOCK, "--port", str(port)] + PHASE_ARGS + (["--faults"] if faults else []) + list(extra)
     out = open(os.path.join(run_dir, "mock.log"), "w")
     p = subprocess.Popen(args, stdout=out, stderr=subprocess.STDOUT, cwd=ROOT)
     for _ in range(100):
@@ -49,9 +50,10 @@ def start_mock(port, faults, run_dir):
     raise RuntimeError(f"mock on {port} did not start")
 
 
-def start_agent(agent, port, run_dir, tag):
+def start_agent(agent, port, run_dir, tag, extra_env=None):
     env = dict(os.environ)
-    env.update(AGENT_ENV, ARENA_URL=f"http://127.0.0.1:{port}", ARENA_KEY="test", PYTHONPATH=ROOT,
+    env.update(AGENT_ENV, **(extra_env or {}))
+    env.update(ARENA_URL=f"http://127.0.0.1:{port}", ARENA_KEY="test", PYTHONPATH=ROOT,
                STATE_PATH=os.path.join(run_dir, "agent_state.json"),
                DECISIONS_PATH=os.path.join(run_dir, f"decisions_{tag}.jsonl"))
     assert_local(env["ARENA_URL"])
@@ -98,9 +100,11 @@ def scenario(name, agent, port, results):
     run_dir = os.path.join(RUNS, name)
     shutil.rmtree(run_dir, ignore_errors=True)
     os.makedirs(run_dir)
-    mock = start_mock(port, name == "faults", run_dir)
+    fakes = name == "upgrade_fakes"
+    mock = start_mock(port, name == "faults", run_dir, ["--fake-rate", "0.2"] if fakes else [])
     try:
-        a = start_agent(agent, port, run_dir, "A")
+        a = start_agent(agent, port, run_dir, "A",
+                        {"ASSESS_MULT": "0", "NO_RELEASE_AFTER": "23:59"} if fakes else None)
         out = {}
         if name.startswith("restart"):
             if not wait_for_text(os.path.join(run_dir, "agent_A.log"), "burst done", 150):
@@ -117,6 +121,14 @@ def scenario(name, agent, port, results):
             out["B"] = summarise(run_dir, "B", b)
         else:
             out["A"] = summarise(run_dir, "A", a)
+        if fakes:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/__truth", timeout=10) as r:
+                out["truth"] = json.loads(r.read())
+            dec = [json.loads(l) for l in open(os.path.join(run_dir, "decisions_A.jsonl"), encoding="utf-8")]
+            out["holds_failed_verification"] = sum(1 for d in dec if d.get("action") == "assess"
+                                                   and "verify our hold" in d.get("why", "") and not d.get("ok"))
+            out["swaps"] = [(d["out"], d["out_class"], d["out_verified"], d["into"], d["in_verified"], d["accepted"])
+                            for d in dec if d.get("action") == "swap"]
         results[name] = out
     finally:
         mock.kill()
@@ -138,6 +150,14 @@ def check(name, out):
         fails.append("uncaught traceback")
     if out["A"]["signed"] == 0:
         fails.append("signed nobody")
+    if name == "upgrade_fakes":
+        t = out["truth"]
+        if not out["holds_failed_verification"]:
+            fails.append("no hold failed verification: scenario exercised nothing")
+        if t["fake_held"]:
+            fails.append(f"fabricated still held at the end: {t['fake_held']}")
+        if any(n != 3 for n in t["filled"].values()):
+            fails.append(f"empty slot at the end: {t['filled']}")
     if name.startswith("restart"):
         b = out["B"]
         if b["rejects"].get("requisition_full"):
@@ -151,7 +171,7 @@ def check(name, out):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--agent", default=os.path.join(ROOT, "agent.py"))
-    ap.add_argument("--only", default="full,restart_state,restart_fresh,faults")
+    ap.add_argument("--only", default="full,restart_state,restart_fresh,faults,upgrade_fakes")
     a = ap.parse_args()
     base = guard()
     names = a.only.split(",")
@@ -176,6 +196,11 @@ def main():
                       f"offers={s['offers']} rejects={s['rejects']} tracebacks={s['tracebacks']} "
                       f"caught={s['caught_and_continued']}")
                 print(f"     final ledger: {s['final_ledger']}")
+        if "truth" in out:
+            print(f"  holds that failed verification: {out['holds_failed_verification']}; swaps "
+                  f"(out, class, verified, in, verified, accepted): {out['swaps']}")
+            print(f"  end: filled={out['truth']['filled']} fake_held={out['truth']['fake_held']} "
+                  f"below_bar_held={out['truth']['below_bar_held']}")
     print("\nALL PASS" if ok else "\nSOME FAILED")
     sys.exit(0 if ok else 1)
 

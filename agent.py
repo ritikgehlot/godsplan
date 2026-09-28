@@ -47,7 +47,14 @@ MIN_PAGES_PER_ROLE = _env("MIN_PAGES_PER_ROLE", 100, int)  # read at least this 
 MAX_PAGES_PER_ROLE = _env("MAX_PAGES_PER_ROLE", 400, int)
 RESTART_PAGES_PER_ROLE = _env("RESTART_PAGES_PER_ROLE", 25, int)  # quick recon after a fresh-disk restart
 P_OK_MIN = _env("P_OK_MIN", 0.6)                  # never sign below this estimated P(eligible)
-UPGRADE_MIN_GAIN = _env("UPGRADE_MIN_GAIN", 10.0)  # points; release+re-sign only above this
+UPGRADE_MIN_GAIN = _env("UPGRADE_MIN_GAIN", 10.0)  # points; release+re-sign only above this (legacy path)
+UPGRADE_PASS = _env("UPGRADE_PASS", 1, int)       # 1 = verified upgrade pass on full reqs; all releases go through it
+VERIFY_HOLDS_MAX = _env("VERIFY_HOLDS_MAX", 10 ** 9, int)  # max /assess calls spent verifying our own holds
+UPGRADE_POOL_PER_REQ = _env("UPGRADE_POOL_PER_REQ", 12, int)  # replacement candidates considered per req
+UPGRADE_MARGIN = _env("UPGRADE_MARGIN", 10.0)     # PASS hold swapped only if replacement's verified margin is this much higher
+NO_RELEASE_AFTER = os.environ.get("NO_RELEASE_AFTER", "16:15")  # local HH:MM; no releases from then on
+READY_FRESH_S = 60                                # a replacement's 'unclaimed' check must be this recent
+MIN_READY = 2                                     # never release without this many verified replacements ready
 USE_LLM = _env("USE_LLM", 1, int)
 LLM_TOKEN_BUDGET = _env("LLM_TOKEN_BUDGET", 120_000, int)  # hard cap is 450K
 MARKET_POLL_S = _env("MARKET_POLL_S", 300, int)   # /market costs 2; only while slots are open
@@ -501,6 +508,9 @@ class Agent:
         self.last_probe, self.probe_result = 0.0, None
         self.pressure = {}
         self.burst_error = None
+        self.checked_at = {}    # cid -> time a profile fetch last confirmed it unclaimed
+        self.hold_assessments = 0
+        self.last_expand = {}   # req_id -> time the upgrade pool was last topped up
         self.setup_done = self.recon_done = self.started_market = False
         self.saved_arena = None
         self.load()
@@ -1136,6 +1146,131 @@ class Agent:
         if gain > UPGRADE_MIN_GAIN and self.release(worst, why=f"upgrade gain {gain:.1f} pts"):
             self.try_offer(best[0][1], rid)
 
+    # ---------------------------------------------------------- upgrade pass (verified swaps)
+    def release_locked(self):
+        """Rule 7: no releases from NO_RELEASE_AFTER (local HH:MM) on, so no slot is empty at the whistle."""
+        return time.strftime("%H:%M") >= NO_RELEASE_AFTER
+
+    def verdict(self, cid, rid):
+        """('FAIL' | 'PASS', verified margin over rid's bar) from our /assess result; None if unverified.
+        FAIL = fabricated / failed reference, or verified score below the bar."""
+        a = self.assessed.get(cid)
+        if a is None:
+            return None
+        if not a.get("ok"):
+            return "FAIL", float("-inf")
+        if a.get("score") is None:
+            return "PASS", 0.0                                   # reference fine, no score: treat as at the bar
+        margin = a["score"] - (self.bars.get(rid, {}).get("min_assess") or 0.0)
+        return ("FAIL" if margin < 0 else "PASS"), margin
+
+    def holds_of(self, rid):
+        return [c for c, r in list(self.held.items()) if r == rid and c not in self.pending]
+
+    def verify_own_holds(self, rids, per_pass=25):
+        """Rule 1: assess holds that have no verified result, least certain (highest P(bad)) first."""
+        todo = [(c, r) for c, r in list(self.held.items())
+                if r in rids and c not in self.assessed and c not in self.pending]
+        todo.sort(key=lambda cr: -(self.p_bad(cr[0]) if cr[0] in self.profiles else 1.0))
+        for cid, rid in todo[:per_pass]:
+            if self.hold_assessments >= VERIFY_HOLDS_MAX:
+                return
+            self.hold_assessments += 1
+            self.assess(cid, why=f"verify our hold in {rid} before any upgrade decision")
+
+    def replacement_pool(self, rid):
+        """Rule 3: profiled, available candidates for rid (best expected value first), never the same
+        person as a hold. Thin pool -> batch-buy more from the kept summaries (at most every 10 min)."""
+        def pool():
+            keys = {self.cluster.get(c) for c in list(self.held)} - {None}
+            return [c for _, c in self.ranked(rid) if self.cluster.get(c) not in keys]
+        out = pool()
+        if len(out) < 2 * MIN_READY and time.time() - self.last_expand.get(rid, 0) > 600:
+            self.last_expand[rid] = time.time()
+            self.expand_pool(rid)
+            out = pool()
+        return out[:UPGRADE_POOL_PER_REQ]
+
+    def verified_replacements(self, rid, need):
+        """Rules 4 and 6: replacements whose verified margin clears `need`, best first. Pays 25 to verify
+        a candidate only if its self-reported margin could clear `need`. Stops at MIN_READY + 1."""
+        bar = self.bars.get(rid, {}).get("min_assess") or 0.0
+        out = []
+        for cid in self.replacement_pool(rid):
+            if len(out) > MIN_READY:
+                break
+            v = self.verdict(cid, rid)
+            if v is None:
+                self_margin = None if self.profiles[cid]["assess"] is None else self.profiles[cid]["assess"] - bar
+                if need > float("-inf") and self_margin is not None and self_margin < need:
+                    continue
+                if not self.confirm_unclaimed(cid):                 # 2 cr check before a 25 cr assessment
+                    continue
+                self.assess(cid, why=f"upgrade candidate for {rid}: needs verified margin >= {need:.1f}")
+                v = self.verdict(cid, rid)
+            if v and v[0] == "PASS" and v[1] >= need:
+                out.append((v[1], cid))
+        out.sort(reverse=True)
+        return out
+
+    def confirm_unclaimed(self, cid):
+        """Rule 4: a profile fetch (2 cr) within READY_FRESH_S must show the candidate unclaimed."""
+        if time.time() - self.checked_at.get(cid, 0) <= READY_FRESH_S and not self.profiles[cid]["claimed"]:
+            return True
+        items = self.fetch_profiles([cid])
+        if not items:
+            return False
+        claimed = truthy(field(items[0][1], *F_CLAIMED))
+        self.profiles[cid]["claimed"] = claimed
+        if not claimed:
+            self.checked_at[cid] = time.time()
+        return not claimed
+
+    def upgrade_req(self, rid, closing, max_swaps=3):
+        """Rules 5-7 for one full requisition: swap the worst hold (FAILs first, then lowest margin)
+        for the best verified replacement, only with MIN_READY fresh replacements in hand."""
+        for _ in range(max_swaps):
+            judged = [(self.verdict(c, rid), c) for c in self.holds_of(rid)]
+            judged = [(v, c) for v, c in judged if v is not None]
+            if not judged or self.release_locked():
+                return
+            (cls, margin), worst = min(judged, key=lambda t: (t[0][0] == "PASS", t[0][1]))
+            need = float("-inf") if cls == "FAIL" else margin + UPGRADE_MARGIN
+            ready = [(m, c) for m, c in self.verified_replacements(rid, need) if self.confirm_unclaimed(c)]
+            if len(ready) < MIN_READY:
+                return                                          # rule 5: never release on hope
+            if not self.swap(rid, worst, cls, margin, ready, closing):
+                return
+
+    def swap(self, rid, out_cid, out_cls, out_margin, ready, closing):
+        """Release out_cid, then offer the ready replacements best-first until one is accepted."""
+        out_score = self.assessed.get(out_cid, {}).get("score")
+        shown_margin = None if out_margin == float("-inf") else round(out_margin, 1)
+        if not self.release(out_cid, why=f"upgrade: {out_cls} hold, verified {out_score}, margin {shown_margin}; "
+                                         f"{len(ready)} verified replacements ready"):
+            return False
+        for m, cid in ready:
+            ok = self.try_offer(cid, rid, closing)
+            self.decide("swap", req=rid, out=out_cid, out_class=out_cls, out_verified=out_score,
+                        out_margin=shown_margin, into=cid, in_verified=self.assessed[cid]["score"],
+                        in_margin=round(m, 1), accepted=ok,
+                        why="FAIL hold replaced by verified PASS" if out_cls == "FAIL" else
+                        f"verified margin gain {m - out_margin:.1f} >= UPGRADE_MARGIN {UPGRADE_MARGIN}")
+            if ok:
+                log(f"SWAP {rid}: {out_cid} ({out_cls}, {out_score}) -> {cid} ({self.assessed[cid]['score']})")
+                return True
+        log(f"WARNING: swap in {rid} left an empty slot: all {len(ready)} replacements rejected")
+        return False
+
+    def upgrade_pass(self, closing):
+        """Market and closing, full requisitions only: verify our holds, then run verified swaps."""
+        full = [rid for rid in list(self.reqs) if self.open_slots(rid) == 0 and self.holds_of(rid)]
+        if not full or self.release_locked():
+            return
+        self.verify_own_holds(set(full))
+        for rid in full:
+            self.upgrade_req(rid, closing)
+
     def expand_pool(self, rid):
         """Queue ran dry but slots remain: buy the next profiles from the kept summaries."""
         summaries = {rec_id(s): s for s in self.top.get(rid, []) if rec_id(s)}
@@ -1184,7 +1319,9 @@ class Agent:
                     self.fill_req(rid, closing)
                     if self.open_slots(rid) > 0 and not self.ranked(rid) and not closing:
                         self.expand_pool(rid)
-                if not closing:
+                if UPGRADE_PASS:
+                    self.upgrade_pass(closing)
+                elif not closing:
                     self.verify_holds()
                     for rid in list(self.reqs):
                         self.maybe_upgrade(rid)

@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+agent_state.json
+agent_state.json.tmp
+decisions.jsonl
+tests/_runs/

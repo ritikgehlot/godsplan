@@ -1,0 +1,617 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "Innov8 4.0 Battle Arena",
+  "version": "0.1.0"
+ },
+ "paths": {
+  "/requisitions": {
+   "get": {
+    "summary": "Requisitions",
+    "operationId": "requisitions_requisitions_get",
+    "parameters": [
+     {
+      "name": "x-arena-key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "title": "X-Arena-Key"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/search": {
+   "get": {
+    "summary": "Search",
+    "operationId": "search_search_get",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Q"
+      }
+     },
+     {
+      "name": "role",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Role"
+      }
+     },
+     {
+      "name": "city",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "City"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 0,
+       "title": "Page"
+      }
+     },
+     {
+      "name": "size",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 100,
+       "title": "Size"
+      }
+     },
+     {
+      "name": "x-arena-key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "title": "X-Arena-Key"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/candidate/{cid}": {
+   "get": {
+    "summary": "Candidate",
+    "operationId": "candidate_candidate__cid__get",
+    "parameters": [
+     {
+      "name": "cid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cid"
+      }
+     },
+     {
+      "name": "x-arena-key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "title": "X-Arena-Key"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/candidates/batch": {
+   "post": {
+    "summary": "Batch",
+    "operationId": "batch_candidates_batch_post",
+    "parameters": [
+     {
+      "name": "x-arena-key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "title": "X-Arena-Key"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_batch_candidates_batch_post"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/assess/{cid}": {
+   "get": {
+    "summary": "Assess",
+    "operationId": "assess_assess__cid__get",
+    "parameters": [
+     {
+      "name": "cid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cid"
+      }
+     },
+     {
+      "name": "x-arena-key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "title": "X-Arena-Key"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/offer": {
+   "post": {
+    "summary": "Offer",
+    "operationId": "offer_offer_post",
+    "parameters": [
+     {
+      "name": "x-arena-key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "title": "X-Arena-Key"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_offer_offer_post"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/offer/{cid}": {
+   "delete": {
+    "summary": "Release",
+    "operationId": "release_offer__cid__delete",
+    "parameters": [
+     {
+      "name": "cid",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Cid"
+      }
+     },
+     {
+      "name": "x-arena-key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "title": "X-Arena-Key"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/market": {
+   "get": {
+    "summary": "Market",
+    "operationId": "market_market_get",
+    "parameters": [
+     {
+      "name": "x-arena-key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "title": "X-Arena-Key"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/ledger": {
+   "get": {
+    "summary": "Ledger",
+    "operationId": "ledger_ledger_get",
+    "parameters": [
+     {
+      "name": "x-arena-key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "title": "X-Arena-Key"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/reason": {
+   "post": {
+    "summary": "Reason",
+    "description": "Metered LLM endpoint. Set ANTHROPIC_API_KEY on the server to enable it.",
+    "operationId": "reason_reason_post",
+    "parameters": [
+     {
+      "name": "x-arena-key",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "title": "X-Arena-Key"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Body_reason_reason_post"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/health": {
+   "get": {
+    "summary": "Health",
+    "operationId": "health_health_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "Body_batch_candidates_batch_post": {
+    "properties": {
+     "ids": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Ids"
+     }
+    },
+    "type": "object",
+    "required": [
+     "ids"
+    ],
+    "title": "Body_batch_candidates_batch_post"
+   },
+   "Body_offer_offer_post": {
+    "properties": {
+     "candidate_id": {
+      "type": "string",
+      "title": "Candidate Id"
+     },
+     "req_id": {
+      "type": "string",
+      "title": "Req Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "candidate_id",
+     "req_id"
+    ],
+    "title": "Body_offer_offer_post"
+   },
+   "Body_reason_reason_post": {
+    "properties": {
+     "prompt": {
+      "type": "string",
+      "title": "Prompt"
+     },
+     "max_tokens": {
+      "type": "integer",
+      "title": "Max Tokens",
+      "default": 400
+     }
+    },
+    "type": "object",
+    "required": [
+     "prompt"
+    ],
+    "title": "Body_reason_reason_post"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
+   }
+  }
+ }
+}

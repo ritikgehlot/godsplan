@@ -37,8 +37,8 @@ class FakeArena:
         return [c for k, c in self.calls if k == "release"]
 
 
-def profile(cid, self_assess):
-    return {"cid": cid, "claimed": False, "assess": self_assess, "notice": 0, "ctc": 1, "skills": [],
+def profile(cid, self_assess, ctc=1, notice=0):
+    return {"cid": cid, "claimed": False, "assess": self_assess, "notice": notice, "ctc": ctc, "skills": [],
             "risk": 0.05, "notes": "", "exp": 3, "email": ""}
 
 
@@ -117,6 +117,40 @@ class UpgradeTests(unittest.TestCase):
                        {"H1": (30, True), "C1": (90, True), "C2": (80, True)}, claimed={"C2"})
         ag.upgrade_pass(closing=False)
         self.assertEqual(ag.arena.released(), [])                   # only one unclaimed replacement
+
+    def test_parse_bar_reads_real_ctc_cap_field(self):
+        bar = A.Agent.parse_bar({"req_id": "R1", "max_expected_ctc_lpa": 26, "max_expected_ctc": "99 LPA"})
+        self.assertEqual(bar["max_ctc"], 26)
+
+    def test_over_cap_hold_fails_and_is_replaced_only_by_clean_candidate(self):
+        verified = {"H1": (80, True), "H2": (90, True), "C1": (95, True), "C2": (88, True),
+                    "C3": (84, True), "C4": (78, True)}
+        ag = self.make(["H1", "H2"], {}, verified, claimed={"C2"})
+        ag.reqs["R1"]["max_expected_ctc_lpa"] = 26
+        ag.reqs["R1"]["max_notice_days"] = 60
+        ag.bars["R1"] = A.Agent.parse_bar(ag.reqs["R1"])
+        ag.profiles["H1"] = profile("H1", 80, ctc=30)          # verified 80 clears the score bar, CTC does not
+        ag.profiles["H2"] = profile("H2", 90, ctc=20)
+        ag.profiles["C1"] = profile("C1", 99, ctc=28)          # best score, but over the cap
+        ag.profiles["C2"] = profile("C2", 95, ctc=20)          # clean but claimed
+        ag.profiles["C3"] = profile("C3", 90, ctc=20)
+        ag.profiles["C4"] = profile("C4", 85, ctc=25)
+        ag.profiles["C5"] = profile("C5", 85, ctc=None)        # unknown CTC: never a replacement
+        verified["C5"] = (99, True)
+        self.assertEqual(ag.verdict("H1", "R1")[0], "FAIL")    # over cap: FAIL even before /assess
+        ag.upgrade_pass(closing=False)
+        self.assertEqual(ag.verdict("H2", "R1")[0], "PASS")
+        ag.profiles["H2"]["notice"] = 90
+        self.assertEqual(ag.verdict("H2", "R1")[0], "FAIL")    # notice over max_notice_days
+        ag.profiles["H2"]["notice"] = 0
+        self.assertEqual(ag.arena.released(), ["H1"])
+        self.assertIn("C3", ag.held)
+        offered = [c for k, c in ag.arena.calls if k == "offer"]
+        assessed = [c for k, c in ag.arena.calls if k == "assess"]
+        self.assertEqual(offered, ["C3"])
+        self.assertNotIn("C1", assessed + offered)             # over-cap never paid for
+        self.assertNotIn("C5", assessed + offered)
+        self.assertNotIn("C2", offered)
 
     def tearDown(self):
         A.NO_RELEASE_AFTER = "16:15"

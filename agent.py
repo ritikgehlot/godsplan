@@ -705,7 +705,8 @@ class Agent:
         return {
             "min_assess": parse_score100(field(src, "min_assessment", "min_assessment_score", "min_score")),
             "max_notice": parse_days(field(src, "max_notice_days", "max_notice", "notice_days")),
-            "max_ctc": parse_lakh(field(src, "max_expected_ctc", "max_ctc", "budget", "ctc_budget")),
+            "max_ctc": parse_lakh(field(src, "max_expected_ctc_lpa", "max_expected_ctc", "max_ctc", "budget",
+                                        "ctc_budget")),
             "min_exp": parse_years(field(src, "min_experience", "min_experience_years")),
             "skills": skill_set(field(src, "skills", "skills_wanted", "required_skills",
                                       "must_have", default=[])),
@@ -1151,18 +1152,32 @@ class Agent:
         """Rule 7: no releases from NO_RELEASE_AFTER (local HH:MM) on, so no slot is empty at the whistle."""
         return time.strftime("%H:%M") >= NO_RELEASE_AFTER
 
+    def breaks_bar(self, cid, rid, strict=False):
+        """Stored profile notice or CTC over rid's cap. strict (replacements): unknown counts as a break."""
+        p, bar = self.profiles.get(cid), self.bars.get(rid, {})
+        for key, cap in (("notice", bar.get("max_notice")), ("ctc", bar.get("max_ctc"))):
+            if cap is None:
+                continue
+            v = None if p is None else p.get(key)
+            if v is None:
+                if strict:
+                    return True
+            elif v > cap:
+                return True
+        return False
+
     def verdict(self, cid, rid):
-        """('FAIL' | 'PASS', verified margin over rid's bar) from our /assess result; None if unverified.
-        FAIL = fabricated / failed reference, or verified score below the bar."""
+        """('FAIL' | 'PASS', verified margin over rid's bar); None if unverified and within notice/CTC.
+        FAIL = fabricated / failed reference, verified score below the bar, notice over the cap, or
+        expected CTC over the cap (notice/CTC from the stored profile)."""
         a = self.assessed.get(cid)
         if a is None:
-            return None
+            return ("FAIL", float("-inf")) if self.breaks_bar(cid, rid) else None
         if not a.get("ok"):
             return "FAIL", float("-inf")
-        if a.get("score") is None:
-            return "PASS", 0.0                                   # reference fine, no score: treat as at the bar
-        margin = a["score"] - (self.bars.get(rid, {}).get("min_assess") or 0.0)
-        return ("FAIL" if margin < 0 else "PASS"), margin
+        margin = 0.0 if a.get("score") is None else \
+            a["score"] - (self.bars.get(rid, {}).get("min_assess") or 0.0)   # no score: treat as at the bar
+        return ("FAIL" if margin < 0 or self.breaks_bar(cid, rid) else "PASS"), margin
 
     def holds_of(self, rid):
         return [c for c, r in list(self.held.items()) if r == rid and c not in self.pending]
@@ -1199,6 +1214,8 @@ class Agent:
         for cid in self.replacement_pool(rid):
             if len(out) > MIN_READY:
                 break
+            if self.breaks_bar(cid, rid, strict=True):              # must clear notice and CTC caps too
+                continue
             v = self.verdict(cid, rid)
             if v is None:
                 self_margin = None if self.profiles[cid]["assess"] is None else self.profiles[cid]["assess"] - bar

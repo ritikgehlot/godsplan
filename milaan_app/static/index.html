@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MILAAN — Recover What You Deserve</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <h1>MILAAN</h1>
+        <p class="tagline">Recover What You Deserve.</p>
+        <nav>
+          <button data-view="dashboard">Dashboard</button>
+          <button data-view="invoices">Invoices</button>
+          <button data-view="agent">Agent Workspace</button>
+          <button data-view="cases">Case Management</button>
+          <button data-view="impact">Impact View</button>
+        </nav>
+        <button id="resetDemo" class="secondary">Reset Demo</button>
+      </aside>
+
+      <main class="content">
+        <header class="topbar">
+          <div>
+            <h2 id="viewTitle">Dashboard</h2>
+            <p class="subtle">Prototype simulation only. No live GST or messaging integration.</p>
+          </div>
+          <p id="globalDisclaimer" class="warning"></p>
+        </header>
+
+        <section id="dashboard" class="view active"></section>
+
+        <section id="invoices" class="view">
+          <div class="card">
+            <h3>Upload Invoice (PDF/Image)</h3>
+            <form id="uploadForm" class="row">
+              <input type="file" id="invoiceFile" accept=".pdf,.png,.jpg,.jpeg" required />
+              <button type="submit">Upload</button>
+            </form>
+            <p class="subtle">OCR is not automatic in this demo. Upload is stored for manual review.</p>
+            <p id="uploadResult"></p>
+          </div>
+
+          <div class="card">
+            <h3>Manual Invoice Entry</h3>
+            <form id="manualForm" class="grid2">
+              <input name="supplier_name" placeholder="Supplier Name" required />
+              <input name="supplier_gstin" placeholder="Supplier GSTIN" />
+              <input name="invoice_number" placeholder="Invoice Number" required />
+              <input name="invoice_date" type="date" required />
+              <input name="taxable_value" type="number" step="0.01" placeholder="Taxable Value" required />
+              <input name="cgst" type="number" step="0.01" placeholder="CGST" required />
+              <input name="sgst" type="number" step="0.01" placeholder="SGST" required />
+              <input name="igst" type="number" step="0.01" placeholder="IGST" required />
+              <input name="invoice_total" type="number" step="0.01" placeholder="Invoice Total" />
+              <label class="checkbox"><input name="uncertain" type="checkbox" /> Extraction uncertain (needs confirmation)</label>
+              <button type="submit">Save Invoice</button>
+            </form>
+            <p id="manualResult"></p>
+          </div>
+
+          <div class="card">
+            <h3>Invoices</h3>
+            <div id="invoiceFilters" class="row">
+              <select id="filterStatus">
+                <option value="">All Statuses</option>
+                <option>Matched</option>
+                <option>Missing from demo GSTR-2B</option>
+                <option>Needs Review</option>
+              </select>
+              <input id="filterSupplier" placeholder="Supplier contains..." />
+              <button id="applyInvoiceFilters">Apply Filters</button>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Invoice</th><th>Supplier</th><th>Date</th><th>GST</th><th>Status</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="invoiceTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="agent" class="view">
+          <div class="card">
+            <h3>MILAAN Agent</h3>
+            <form id="agentForm" class="row">
+              <select id="agentInvoice"></select>
+              <input id="agentRequest" value="Please analyze discrepancy and suggest next action." />
+              <button type="submit">Analyze</button>
+            </form>
+            <p class="subtle">Deterministic mode by default. Structured tool workflow only.</p>
+          </div>
+          <div class="card">
+            <h3>Agent Activity Panel</h3>
+            <div id="agentSteps"></div>
+          </div>
+        </section>
+
+        <section id="cases" class="view">
+          <div class="card">
+            <h3>Case Management</h3>
+            <table>
+              <thead>
+                <tr><th>Case</th><th>Invoice</th><th>Status</th><th>Discrepancy</th><th>Potential GST</th><th>Actions</th></tr>
+              </thead>
+              <tbody id="caseTable"></tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>Case Detail</h3>
+            <div id="caseDetail">Select a case.</div>
+          </div>
+          <div class="card">
+            <h3>Import Later Statement (CSV)</h3>
+            <form id="laterForm" class="row">
+              <input type="file" id="laterFile" accept=".csv" required />
+              <input id="laterPeriod" placeholder="Statement period (YYYY-MM)" />
+              <button type="submit">Import</button>
+            </form>
+            <p id="laterResult"></p>
+          </div>
+        </section>
+
+        <section id="impact" class="view">
+          <div class="card" id="impactPanel"></div>
+          <div class="card">
+            <h3>Demo Notes</h3>
+            <ul>
+              <li>GSTR-2B imports are CSV-based for local demo reliability.</li>
+              <li>Follow-up delivery is simulated and requires explicit approval.</li>
+              <li>Verification requires later-statement matching evidence.</li>
+            </ul>
+            <p class="warning">Potential discrepancies require independent verification. MILAAN does not guarantee ITC eligibility or recovery.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

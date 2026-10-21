@@ -1,0 +1,2 @@
+supplier_gstin,invoice_number,invoice_date,taxable_value,cgst,sgst,igst,total_gst,statement_period
+27CCCCC3333C1Z7,INV-103,2026-05-10,10000,900,900,0,1800,2026-05

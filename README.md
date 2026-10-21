@@ -1,248 +1,192 @@
-# god'splan · Autonomous Recruiting Agent
+# MILAAN — AI-Powered GST Invoice Reconciliation and Follow-up Agent
 
-**An agent that only spends when the points are worth it.** Built for the **Innov8 4.0 Grand Finale: The Battle Arena** (Eightfold.ai × ARIES, IIT Delhi, 28–29 September 2026).
+**Tagline:** Recover What You Deserve.
 
-![Python](https://img.shields.io/badge/python-3.10%2B-1F2A44)
-![Dependencies](https://img.shields.io/badge/dependencies-standard%20library%20only-1A7F8E)
-![Tests](https://img.shields.io/badge/unit%20tests-37%20passing-1A7F8E)
-![Result](https://img.shields.io/badge/final%20result-8th%20overall%20%C2%B7%20top%2010%20of%2040-D98E04)
+MILAAN is a working full-stack demo application for SARCathon 2026 Round 2. It helps small businesses reconcile purchase invoices against GSTR-2B records, investigate discrepancies, draft supplier follow-ups with explicit approval, track cases, and verify outcomes against later statement data.
 
-Forty autonomous agents compete, live and with no human in the loop, for one shared pool of **1,000,000 candidate profiles**. Every team has **50,000 credits**. Every action costs credits: a search, a full profile, a verified assessment, an offer. Whoever signs a candidate first holds them.
-
-```
-arena score = points of candidates held − credits used × PENALTY_FACTOR      (PF = 0.05 on the day)
-```
-
-This repository contains our agent, `agent.py`: one Python file, standard library only, that fills requisitions under a credit budget, verifies what it signs, and repairs its own mistakes without being touched.
+> **Disclaimer:** Potential discrepancies require independent verification. MILAAN does not guarantee ITC eligibility or recovery.
 
 ---
 
-## Results
+## What this repository contains
 
-| | |
-|---|---|
-| **Final placing** | **8th overall**, top 10 of 40 finalist teams |
-| **Final score** | **61.6 / 100** = arena 39.6 / 70 + code 22 / 30 |
-| **Arena score** | **1,034.2** = 1,611 points − 11,537 credits × 0.05 |
-| **Slots filled** | **116 / 116**, all within **15 seconds** of the first offer |
-| **Roster quality** | 116 / 116 verified by `/assess`; every hold inside every bar we check |
-| **Live fix** | salary-cap bug found and fixed mid-run: **+260 points**, net **+126.65** score |
-
-Every number here is recomputed from the agent's own logs (`decisions.jsonl`, `agent_state.json`) or is a ledger value recorded during the run.
+- FastAPI backend with SQLite persistence
+- Web UI (single-page workflow app) with dashboard, invoice workspace, agent panel, case management, and impact view
+- Deterministic reconciliation engine and tool-based agent orchestrator
+- Seed/demo data with required 5 invoices and derived metrics
+- CSV import for GSTR-2B and later-statement verification
+- Simulated supplier follow-up approval workflow
+- Unit/integration tests
 
 ---
 
-## How it works
+## Tech stack
 
-### The one rule
-
-Before paying for anything, the agent asks: **will this add more expected points than it costs in score?**
-
-| Action | Credits | Cost in points at PF 0.05 |
-|---|---:|---:|
-| Search page (up to 100 summaries) | 1 | 0.05 |
-| Full profile | 2 | 0.10 |
-| Batch of 50 full profiles | 60 | 3.00 |
-| Offer (market / closing hour) | 10 / 20 | 0.50 / 1.00 |
-| Verified assessment | 25 | 1.25 |
-| Release a signing | 5 | 0.25 |
-
-### Five steps inside one supervisor loop
-
-```mermaid
-flowchart LR
-    A["1 · CHECK<br/>GET /ledger (free)<br/>phase + our signings"] --> B["2 · SETUP<br/>requisitions + bar<br/>TUNE from PF"]
-    B --> C["3 · SEARCH<br/>cheap search<br/>batch profiles"]
-    C --> D["4 · SIGN<br/>value · rank · offer<br/>verify with /assess"]
-    D --> E["5 · SWAP<br/>replace anyone who<br/>breaks the bar"]
-    E --> A
-```
-
-`run()` is a supervisor loop. **Only running out of credits or the arena closing ends a run.** A `409` re-reads the phase; any other error (401, timeouts, malformed JSON) is logged and retried five seconds later.
-
-### Valuing a candidate: `value()`
-
-```text
-EV(c, r) = P_ok × points_r × (0.5 + 0.5 × quality)
-
-quality  = 0.5 · skill_coverage          # wanted skills matched (aliases + typo tolerance)
-         + 0.3 · assessment_margin       # how far above the minimum score
-         + 0.1 · notice_slack            # shorter notice is better
-         + 0.1 · salary_slack            # room under the salary cap
-
-P_ok     = (1 − P_bad) × 0.85^u          # u = bar fields that could not be read
-EV       = 0  if assessment < min, notice > max, salary > cap, or skill coverage < 0.5
-```
-
-`P_bad` is 0.02 after a verified pass, 0.99 after a verified fail, and otherwise a heuristic risk score: missing or too-perfect scores, keyword stuffing, inconsistent experience, red-flag words in notes.
-
-### Decision rules
-
-| Decision | Rule | Where |
-|---|---|---|
-| **Sign** | `P_ok ≥ 0.6` and `EV > offer cost × PF`, best EV first | `ranked()` |
-| **Assess** | `P_bad × points_r > 25 × PF` | `worth_assessing()` |
-| **Buy profiles** | one batch call (60 for 50) whenever 30 or more are needed | `buy_profiles()` |
-| **Search** | role-filtered pages; stop on an empty or short page, `has_more`/`total`, or no top-K gain | `search_role()` |
-| **Re-offer** | refresh claimed status (at most every 10 min) before paying for offers late in the market | `refresh_stale()` |
-| **Tune** | worth = points ÷ PF → *explore* (≥ 1,000), *frugal* (< 200), else *balanced* | `tune_knobs()` |
-| **Stop** | when nothing clears its PF-adjusted cost, only the free `/ledger` is read | market loop |
-
-### The upgrade pass: seven safety rules
-
-Once a requisition is full, quality is the only lever left. The upgrade pass replaces holds that break the bar, but never on hope:
-
-1. **Verify our own holds first**, highest risk first, at most 25 per pass.
-2. **Classify each hold.** FAIL means a failed reference, a verified score below the minimum, notice over the maximum, or salary over the cap. Otherwise it's PASS, with its verified margin.
-3. **Build a replacement pool** that excludes anyone who is the same person as a current hold.
-4. **Check each replacement.** It must clear notice and salary with *known* values, be confirmed unclaimed by a 2-credit check within 60 s (before paying 25 for the assessment), and verify as PASS.
-5. **Two ready.** Never release unless **two verified replacements** are ready.
-6. **Margin.** Swap a PASS hold only if the replacement beats it by `UPGRADE_MARGIN`.
-7. **Cut-off.** No releases from `NO_RELEASE_AFTER` (16:15), so no seat is empty at the whistle.
-
-### Robustness
-
-| Situation | Behaviour |
-|---|---|
-| `429` rate limited | we pace ourselves at 8 req/s (limit 10); the client backs off and retries |
-| `5xx`, timeouts, malformed JSON | retried; a bad body becomes a handled error, never a crash |
-| `401` or any unexpected error | logged by the supervisor, retried after 5 s |
-| `409` wrong phase | phase re-read from `/ledger` |
-| Empty / failed search page | stop that role / retry 3×, then skip |
-| `requisition_full` | requisition marked full; slot counts always come from the server |
-| `already_signed` / same person | the whole duplicate cluster (name + role, or e-mail) marked taken |
-| `role_mismatch` | that (candidate, requisition) pair is never offered again |
-| Crash or restart | resumes from an atomically saved state file; without one, rebuilds from the server and runs a 25-page quick recon |
-| State file from another arena | detected and discarded |
-| Closing hour | offers cost 20 in the sign rule; no refreshes or market polls; no releases after 16:15 |
-| Out of credits | stop buying, keep every hold |
+- Python 3.10+
+- FastAPI + Uvicorn
+- SQLite (local persistent demo DB)
+- Vanilla HTML/CSS/JS frontend (served by FastAPI)
 
 ---
 
-## Quick start
-
-**Requirements:** Python 3.10+ (developed on 3.11, tested on 3.13). No third-party packages.
-
-```bash
-git clone https://github.com/ritikgehlot/<repo-name>.git
-cd <repo-name>
-# Place the organisers' arena_client.py (from the starter kit) next to agent.py.
-```
-
-**macOS / Linux**
-
-```bash
-export ARENA_URL="https://<arena-host>"
-export ARENA_KEY="<your team key>"      # never commit this
-export PENALTY_FACTOR=0.05
-python3 -u agent.py 2>&1 | tee -a agent.log
-```
-
-**Windows (PowerShell)**
-
-```powershell
-$env:ARENA_URL = "https://<arena-host>"; $env:ARENA_KEY = "<your team key>"; $env:PENALTY_FACTOR = "0.05"
-python -u agent.py 2>&1 | Tee-Object -FilePath agent.log -Append
-```
-
-> **Before the arena opens:** check your key with the free `GET /ledger`, then read the `SAMPLE` lines in the log. They show every endpoint's real field names. Both of our real bugs were field names.
-
-## Configuration
-
-Every setting is an environment variable; defaults live together at the top of `agent.py`.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `PENALTY_FACTOR` | `0.05` | credit penalty used by every decision rule |
-| `DEFAULT_REQ_POINTS` | `100` | points per hire when `/requisitions` gives none |
-| `PROFILE_MULT` / `ASSESS_MULT` | `6` / `2` | profiles and pre-market assessments per open slot (TUNE may change them) |
-| `TOPK_PER_REQ` / `SEARCH_PATIENCE` | `400` / `15` | summaries kept per requisition; pages without improvement before stopping |
-| `MIN_PAGES_PER_ROLE` / `MAX_PAGES_PER_ROLE` | `100` / `400` | search depth in a full recon |
-| `RESTART_PAGES_PER_ROLE` | `25` | search depth after a mid-market start |
-| `P_OK_MIN` | `0.6` | minimum probability of being genuine to sign |
-| `UPGRADE_PASS` | `1` | `1` = verified upgrade pass; `0` = legacy verify-after-sign path |
-| `UPGRADE_MARGIN` | `10` | assessment-margin gain needed to swap a PASS hold |
-| `VERIFY_HOLDS_MAX` | unlimited | cap on assessments of our own holds |
-| `UPGRADE_POOL_PER_REQ` | `12` | replacement candidates considered per requisition |
-| `NO_RELEASE_AFTER` | `16:15` | local time after which nothing is released |
-| `USE_LLM` / `LLM_TOKEN_BUDGET` | `1` / `120000` | LLM note screen and its token cap |
-| `MARKET_POLL_S` / `LOOP_SLEEP_S` | `300` / `5` | seconds between `/market` polls (only while slots are open); loop pause |
-| `RPS` | `8` | request pacing (the arena limit is 10/s) |
-| `STATE_PATH` / `DECISIONS_PATH` | `agent_state.json` / `decisions.jsonl` | output files |
-
-## Outputs and logs
-
-| File | What it contains |
-|---|---|
-| `agent_state.json` | profiles, verdicts, holdings. Restarting in the same folder resumes from it |
-| `decisions.jsonl` | one line per paid decision: time, action, reason, credits left |
-| `agent.log` | console log |
-
-Log lines to know: `SAMPLE <endpoint>` (a real response shape), `TUNE` (tier chosen), `SIGNED`, `SWAP <req>: out (class, score) -> in (score)`, `WARNING`, and `run/loop error (continuing)`.
-
-## Testing
-
-```bash
-PYTHONPATH=. python -m unittest discover -s tests -v      # 37 tests, no network
-```
-
-- `tests/test_parsers.py`: messy formats ("7.1/10", "2 months", "12,00,000", "1.2 Cr"), field-name fallbacks, slot accounting.
-- `tests/test_upgrade.py`: upgrade-pass rules 5–7, FAIL-first ordering, rejection fallback, salary-cap FAIL.
-- `tests/run_restart.py` + `tests/mock_server.py`: full-run, restart (with and without state), fault-injection and fake-holds scenarios against a **local** mock. It refuses to run against anything but `127.0.0.1`. The mock data are synthetic, so these prove robustness, not score.
-
-## Repository layout
+## Project structure
 
 ```
 .
-├── agent.py            # the agent (single file, ~1,450 lines)
-├── tests/              # unit tests + local mock scenarios
-├── docs/               # final report, strategy note, pitch deck (optional)
-└── README.md
+├── milaan_app/
+│   ├── main.py                  # API + app bootstrap
+│   ├── db.py                    # SQLite schema + helpers
+│   ├── seed.py                  # Demo seed data
+│   ├── schemas.py               # Input schemas and status enums
+│   ├── config.py                # Paths, limits, disclaimers
+│   ├── services/
+│   │   ├── reconciliation.py    # Deterministic matching + discrepancy logic
+│   │   ├── case_management.py   # Case lifecycle + follow-up + verification
+│   │   ├── metrics.py           # Dashboard and impact metrics
+│   │   ├── agent_tools.py       # Tool interface for orchestration
+│   │   └── agent_orchestrator.py# Multi-step deterministic agent workflow
+│   └── static/
+│       ├── index.html
+│       ├── styles.css
+│       └── app.js
+├── tests/
+│   ├── test_reconciliation.py
+│   ├── test_cases.py
+│   └── test_api.py
+├── sample_data/
+│   ├── gstr2b_sample.csv
+│   └── later_statement_sample.csv
+├── .env.example
+└── requirements.txt
 ```
 
-`arena_client.py` is the organisers' official client. We ran it **unmodified** (SHA-256 identical to the starter kit), but it isn't ours to publish, so bring your own copy from the starter kit.
+---
+
+## Setup
+
+```bash
+cd /home/runner/work/godsplan/godsplan
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Optional environment variables:
+
+- `MILAAN_DB_PATH` (default `./data/milaan.db`)
+- `MILAAN_UPLOAD_DIR` (default `./uploads`)
 
 ---
 
-## The live run
+## Run
 
-| Time (IST) | What happened |
-|---|---|
-| 10:30 / 11:30 | Recon hour, then market opens. **We missed both.** |
-| 12:43 | Every call returned `401`: we had misread one character of the API key. The supervisor kept retrying. |
-| 13:12 | Agent starts mid-market, so quick recon: 250 search pages, 1,328 profiles bought. |
-| 13:13:38 → 13:13:53 | Opening burst, one thread per requisition: **all 116 slots filled in 15 s**. |
-| 13:13–13:16 | 186 post-sign assessments; **70 released and replaced** (35 fake/failed reference, 35 below minimum score). |
-| 13:16–13:57 | All slots full, nothing worth buying: **zero paid calls**. |
-| ~13:50 | A read-only audit of `agent_state.json` found **14 holds over their salary cap**, earning zero. |
-| 13:57:55 | New build deployed: salary-cap field fix + upgrade pass. |
-| 13:57:57 → 13:58:32 | **14 swaps.** Points 1,351 → 1,611 (**+260**) for 2,667 credits (**net +126.65**). |
-| 14:08:33 | Last paid action. The agent idled on the free ledger until the close. |
+```bash
+uvicorn milaan_app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-**Where the 11,537 credits went:** verified assessments 6,600 (57%) · accepted offers 2,010 · batch profiles 1,560 · releases 425 · rejected offers 330 · search 250 · claimed-status refreshes 144 · single profiles 56 · 162 not written to the decision log (status checks and market polls).
-
-## What we got wrong, and what we'd change
-
-| Issue | Impact | Fix |
-|---|---|---|
-| **Field names.** The salary cap was read as `max_expected_ctc` (real: `max_expected_ctc_lpa`); notes as `notes` (real: `note`) | 14 zero-point holds until fixed; the notes factor and LLM screen never ran (0 tokens) | a start-up schema check against the live `SAMPLE` responses |
-| **Sign first, verify after.** The quick recon skips pre-offer assessment | 70 releases + re-offers ≈ 1,050 credits | assess before offering whenever the agent is not racing |
-| **No role filter** in `ranked()` | 29 `role_mismatch` rejections (290 credits) | filter by role before ranking |
-| **No points field** in `/requisitions` | the assumed scale of 100/hire made information look cheaper than it was | calibrate from 15-minute ledger point deltas |
-| **Client retries** bypass our throttle; some paid calls unlogged | rate-limit compliance can't be proven; 162 credits unexplained | route retries through the throttle; log every paid call |
-
-Credits were our biggest gap: with the same points but the credit spend of the rank-5 arena team, our arena score would have been about 1,399.
+Open: `http://localhost:8000`
 
 ---
 
-## Team
+## Core workflows implemented
 
-**god'splan**: Ritik ([@ritikgehlot](https://github.com/ritikgehlot)) · Shubham Kumar Singh
+1. **Dashboard metrics (data-derived):**
+   - Total invoices
+   - Matched invoices
+   - Discrepancies requiring review
+   - Potential discrepancy GST amount
+   - Open/awaiting/verified case counts
 
-## AI assistance
+2. **Invoice workspace:**
+   - Upload invoice file (PDF/JPG/PNG) with type/size validation
+   - Manual invoice entry with GST arithmetic checks
+   - Invoice filtering + per-invoice reconciliation
 
-Declared, as the competition rules require: **Claude** and **Claude Code** (Anthropic) were used to help design, write, test and audit the agent and its documentation. The team ran, reviewed and deployed everything. No external datasets are used: the skill-alias map and keyword lists are hand-written in `agent.py`.
+3. **Reconciliation engine (deterministic):**
+   - Match by invoice number + GSTIN + GST values
+   - Detect missing, uncertain, mismatch, duplicate scenarios
+   - Missing message includes required cautionary text
 
-## Acknowledgements
+4. **Agent workspace:**
+   - Structured tool-driven workflow (not free-form hidden reasoning)
+   - Activity panel with step statuses and tool outcomes
 
-Thanks to **Eightfold.ai** and **ARIES, IIT Delhi** for Innov8 4.0 and the Battle Arena. The arena, its API, the case file and the starter kit belong to the organisers; this repository contains only our own agent, tests and write-up.
+5. **Supplier follow-up + approval:**
+   - Draft professional follow-up
+   - User review/edit/approve required
+   - Records simulated send only
+   - Explicitly states: **"Demo simulation only — no real message was sent."**
+
+6. **Case lifecycle + verification:**
+   - Controlled transitions across states:
+     - Needs Review
+     - Ready for Follow-up
+     - Follow-up Approved
+     - Follow-up Simulated
+     - Awaiting Verification
+     - Verified in Demo Data
+     - Closed Without Verification
+   - Later statement import + verification gate before marked verified
+
+---
+
+## Seed data
+
+Includes required synthetic demo records:
+
+- INV-101 (GST ₹1,800) Matched
+- INV-102 (GST ₹900) Matched
+- INV-103 (GST ₹1,800) Missing from demo GSTR-2B
+- INV-104 (GST ₹1,800) Matched
+- INV-105 (GST ₹1,800) Needs Review
+
+Initial calculated totals:
+
+- Total invoices: 5
+- Matched: 3
+- Requiring review: 2
+- Potential discrepancy GST: ₹3,600
+
+---
+
+## Tests
+
+Run:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Coverage focus:
+
+- Tax arithmetic
+- Normalization
+- Reconciliation outcomes
+- Missing/uncertain handling
+- Case transition rules
+- Follow-up approval workflow
+- Later-statement verification
+- API behavior and workflow endpoints
+
+---
+
+## Implemented vs simulated integrations
+
+### Implemented
+- Local SQLite persistence
+- CSV imports for statement data
+- Deterministic reconciliation and case workflows
+- Simulated delivery adapter recording follow-up events
+
+### Simulated / not connected
+- Live GST portal integration
+- Real WhatsApp/email dispatch
+- Real OCR extraction
+- Live LLM reasoning (deterministic fallback is active by default)
+
+---
+
+## 3-minute demo script
+
+See: `DEMO_SCRIPT.md`
+
